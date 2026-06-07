@@ -1,0 +1,60 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  backend-tests:
+    name: Backend tests (unit + integration)
+    runs-on: ubuntu-latest
+
+    # 整合測試用的拋棄式 PostgreSQL（CI 提供 instance，harness 會透過 TEST_DATABASE_URL 使用它）
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: fruit
+          POSTGRES_PASSWORD: fruit
+          POSTGRES_DB: fruit_sales_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U fruit -d fruit_sales_test"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests
+        run: npm run test:ci
+        env:
+          # 有此變數時 global-setup 直接用 service container，不啟動 Testcontainers
+          TEST_DATABASE_URL: postgres://fruit:fruit@localhost:5432/fruit_sales_test
+          JWT_ACCESS_SECRET: ci-access-secret
+          JWT_REFRESH_SECRET: ci-refresh-secret
+
+      - name: Upload test report
+        if: always() # 測試失敗也要上傳報告
+        uses: actions/upload-artifact@v4
+        with:
+          name: junit-test-report
+          path: backend/test-results/junit.xml
+          if-no-files-found: error
