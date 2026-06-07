@@ -1,4 +1,5 @@
 import webpush from 'web-push';
+import type { PushSubscription } from 'web-push';
 import { config } from '../config.js';
 import { pool } from '../db/pool.js';
 
@@ -16,9 +17,9 @@ if (enabled) {
 export const pushEnabled = enabled;
 
 /** 對所有出貨組已訂閱裝置發送推播 */
-export async function pushToShippers(payload) {
+export async function pushToShippers(payload: unknown): Promise<void> {
   if (!enabled) return;
-  const { rows } = await pool.query(
+  const { rows } = await pool.query<{ subscription: PushSubscription }>(
     `SELECT ps.subscription FROM push_subscriptions ps
      JOIN users u ON u.id = ps.user_id
      WHERE u.role = 'shipper' AND u.is_active = TRUE`
@@ -29,7 +30,8 @@ export async function pushToShippers(payload) {
         await webpush.sendNotification(r.subscription, JSON.stringify(payload));
       } catch (err) {
         // 410/404：訂閱失效，移除
-        if (err.statusCode === 410 || err.statusCode === 404) {
+        const statusCode = (err as { statusCode?: number }).statusCode;
+        if (statusCode === 410 || statusCode === 404) {
           await pool.query('DELETE FROM push_subscriptions WHERE endpoint = $1', [
             r.subscription.endpoint,
           ]);

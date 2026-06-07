@@ -1,9 +1,13 @@
 import { pool } from './pool.js';
 import { hashPassword } from '../lib/auth.js';
+import type { Role } from '../types.js';
+
+type SeedUser = { username: string; display_name: string; role: Role; password: string };
+type SeedProduct = { name: string; price: number; stock: number; listed?: boolean };
 
 /** 初始化示範資料（idempotent，已存在則略過） */
-export async function seed() {
-  const { rows } = await pool.query('SELECT COUNT(*)::int AS n FROM users');
+export async function seed(): Promise<void> {
+  const { rows } = await pool.query<{ n: number }>('SELECT COUNT(*)::int AS n FROM users');
   if (rows[0].n > 0) {
     console.log('[seed] 已有資料，略過');
     return;
@@ -11,7 +15,7 @@ export async function seed() {
 
   console.log('[seed] 建立示範使用者與商品…');
 
-  const users = [
+  const users: SeedUser[] = [
     // Root 超級管理員（最高權限，供系統維運使用）
     { username: 'root', display_name: 'Root 超級管理員', role: 'admin', password: 'root1234' },
     { username: 'admin', display_name: '系統管理員', role: 'admin', password: 'admin123' },
@@ -27,7 +31,7 @@ export async function seed() {
     );
   }
 
-  const products = [
+  const products: SeedProduct[] = [
     { name: '愛文芒果', price: 250, stock: 100 },
     { name: '玉荷包荔枝', price: 500, stock: 60 },
     { name: '澳洲紅地球葡萄', price: 320, stock: 80 },
