@@ -46,6 +46,24 @@
 
 ---
 
+### 3. 加入 Swagger / OpenAPI API 文件
+
+> ⏳ **順序：先做完 #2 TypeScript 改寫，再引入。**
+
+**現況**：目前沒有任何 swagger/openapi。API 文件只有純文字（`README.md` 的「API 摘要」段、`specs/02-backend-spec.md`），不是機器可讀，無法產互動式 UI、client SDK 或 contract test。
+
+**目標**：提供機器可讀的 OpenAPI 文件 + 可互動的 Swagger UI（例如掛在 `/api-docs`）。
+
+**做法（兩種主流，擇一）**：
+- **註解驅動**：`swagger-jsdoc` + `swagger-ui-express`，在 route 上方寫 JSDoc 註解掃描產出。可漸進貼著現有 route 加。
+- **Spec 優先**：手寫 `openapi.yaml` + `swagger-ui-express`，先定 contract 再對照實作。
+
+**為何排在 TS 之後（綜效）**：改成 TS 後可用 **`zod` + `zod-to-openapi`**（或 `tsoa`）**從型別/驗證 schema 自動產生 OpenAPI**，文件不會跟程式碼脫節 —— 這是現在 TS 後端很流行的做法，比手寫註解更不易過時。
+
+**學習重點**：OpenAPI 3 規格結構、request/response schema、用 zod 同時做「執行期驗證」與「文件來源（single source of truth）」。
+
+---
+
 ## ✅ 已完成
 
 （尚無）
