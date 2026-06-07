@@ -1,0 +1,28 @@
+{
+  "name": "fruit-sales-backend",
+  "version": "1.0.0",
+  "description": "水果銷售出貨系統 後端 API Server",
+  "type": "module",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "migrate": "node-pg-migrate",
+    "migrate:up": "node-pg-migrate up",
+    "migrate:down": "node-pg-migrate down",
+    "migrate:create": "node-pg-migrate create -j sql",
+    "seed": "node src/db/seed.js"
+  },
+  "dependencies": {
+    "argon2": "^0.41.1",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.21.2",
+    "jsonwebtoken": "^9.0.2",
+    "multer": "^1.4.5-lts.1",
+    "node-pg-migrate": "^7.9.1",
+    "pg": "^8.13.1",
+    "socket.io": "^4.8.1",
+    "web-push": "^3.6.7"
+  }
+}
