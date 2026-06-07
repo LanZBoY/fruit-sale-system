@@ -6,22 +6,18 @@
 
 ## 🚧 規劃中
 
-### 1. 全專案改寫為 TypeScript（學習目的）
+### 1. 前端改寫為 TypeScript（學習目的）
 
-> 先做這個（重構），再實作新功能。
+> 後端已完成（見「已完成」）；此項為剩下的前端部分。
 
-**目標**：把前後端從 JavaScript 改寫成 TypeScript，主要為了學 TS。
+**目標**：把前端 React 從 JavaScript 改寫成 TypeScript。
 
-**建議做法（漸進式，不要一次全砍掉重寫）**：
-- **後端**先做（型別收益最大、檔案較少）：
-  - 加 `tsconfig.json`、`typescript` + `@types/node` `@types/express` 等。
-  - 先把 `.js` 改副檔名成 `.ts`，開 `allowJs` + `checkJs` 逐步補型別，最後關掉 allowJs。
-  - DB 查詢結果、API 的 request/response 定義 `interface` / `type`（型別收益最明顯的地方）。
-  - 執行：用 `tsx`（開發）或 `tsc` 編譯；Dockerfile 加 build 階段。
-- **前端**：Vite 原生支援 TS，元件改 `.tsx`，props 定義型別；React Query / Socket.IO 事件 payload 都可上型別。
-- 可考慮共用一份型別（monorepo 的 `shared/` 放 API DTO，前後端共用）。
+**建議做法**：
+- Vite 原生支援 TS，元件 `.jsx → .tsx`，props 用 `interface`/`type` 定義。
+- React Query 的 query/mutation、Socket.IO 事件 payload 都可上型別。
+- 可考慮抽一份共用型別（monorepo `shared/` 放 API DTO，前後端共用；後端的 `src/types.ts` 可當基礎）。
 
-**學習重點**：`interface` vs `type`、泛型、`unknown` vs `any`、`strict` 模式、第三方套件的 `@types/*`、Express 的型別擴充（`Request` 加自訂欄位如 `req.user`）。
+**學習重點**：`.tsx` 與 JSX 型別、元件 props/state 型別、event handler 型別、`React.FC` 的取捨。
 
 ---
 
@@ -68,4 +64,10 @@
 
 ## ✅ 已完成
 
-（尚無）
+### 後端改寫為 TypeScript（2026-06-07）
+
+- 全 `backend/src` 由 JS 轉 TypeScript（TS 6，`strict` + `NodeNext`）。
+- 共用型別 `src/types.ts`（Role/OrderStatus/各 Row）、`src/express.d.ts` 擴充 `req.user`。
+- `pool.query<T>` 泛型化、`asyncHandler`/`errorHandler` 型別化。
+- 執行：`tsx`（dev）/ `tsc`（build→`dist`）；Dockerfile 改多階段；CI 加 `typecheck`。
+- 全程以 126 條測試當安全網，行為不變、tsc 0 錯。

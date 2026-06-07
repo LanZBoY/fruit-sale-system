@@ -5,7 +5,7 @@
 依據 `specs/` 規格實作的全端專案：銷售組送單 → 出貨組即時接單備貨 → 管理後台統計。
 
 - **前端**：React 18 + Vite + Tailwind CSS + React Query + Socket.IO（PWA，可安裝、支援 Web Push）
-- **後端**：Node.js + Express + PostgreSQL + Socket.IO + JWT(argon2)
+- **後端**：Node.js + **TypeScript** + Express + PostgreSQL + Socket.IO + JWT(argon2)；Vitest 測試（unit + Testcontainers 整合測試）
 - **資料庫遷移**：node-pg-migrate（版本化、可回滾，因應需求變更）
 - **部署**：Docker Compose 一鍵啟動（db + backend + frontend）
 
@@ -59,16 +59,19 @@ fruit-sales-system/
 ├── docker-compose.yml      # 一鍵啟動
 ├── .env.example            # 金鑰 / VAPID 設定範例
 ├── specs/                  # 規格文件
-├── backend/                # Express API
+├── backend/                # Express API（TypeScript）
 │   ├── migrations/         # node-pg-migrate 遷移檔
+│   ├── tsconfig.json       # TS 設定（strict + NodeNext）
 │   ├── src/
-│   │   ├── server.js       # 進入點（啟動時自動 migrate + seed）
-│   │   ├── app.js          # Express 應用
+│   │   ├── server.ts       # 進入點（啟動時自動 migrate + seed）
+│   │   ├── app.ts          # Express 應用
+│   │   ├── types.ts        # 共用資料型別；express.d.ts 擴充 req.user
 │   │   ├── db/             # 連線池 / 遷移 / seed
 │   │   ├── lib/            # auth / errors / realtime / push / tz
 │   │   ├── middleware/     # JWT 驗證 + RBAC
 │   │   └── routes/         # auth/products/customers/orders/stats/users/push
-│   └── Dockerfile
+│   ├── test/               # Vitest：unit（純函式）+ integration（Testcontainers）
+│   └── Dockerfile          # 多階段：tsc 編譯 → dist
 └── frontend/               # React PWA
     ├── src/
     │   ├── pages/          # login / sales / shipper / admin
