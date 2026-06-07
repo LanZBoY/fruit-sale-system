@@ -5,6 +5,15 @@ import { defineConfig } from 'vitest/config';
 // - integration：用 Testcontainers 起一顆拋棄式 postgres，跑真實 SQL
 export default defineConfig({
   test: {
+    // 覆蓋率：以 --coverage 啟用，跨 unit/integration 兩組彙總
+    coverage: {
+      provider: 'v8',
+      include: ['src/**/*.js'],
+      // 進入點 / 純設定 / 即時推送等難以在自動化測試覆蓋，排除以免雜訊
+      exclude: ['src/server.js', 'src/config.js', 'src/lib/realtime.js', 'src/lib/push.js'],
+      reporter: ['text', 'text-summary', 'json-summary', 'html'],
+      reportsDirectory: 'coverage',
+    },
     projects: [
       {
         test: {
