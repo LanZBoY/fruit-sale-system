@@ -1,5 +1,7 @@
 # 🍊 水果銷售出貨系統 (Fruit Sales & Shipping System)
 
+[![CI](https://github.com/LanZBoY/fruit-sale-system/actions/workflows/ci.yml/badge.svg)](https://github.com/LanZBoY/fruit-sale-system/actions/workflows/ci.yml)
+
 依據 `specs/` 規格實作的全端專案：銷售組送單 → 出貨組即時接單備貨 → 管理後台統計。
 
 - **前端**：React 18 + Vite + Tailwind CSS + React Query + Socket.IO（PWA，可安裝、支援 Web Push）
