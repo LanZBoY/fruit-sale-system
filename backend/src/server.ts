@@ -4,7 +4,7 @@ import { config } from './config.js';
 import { initRealtime } from './lib/realtime.js';
 import { migrate } from './db/migrate.js';
 
-async function main() {
+async function main(): Promise<void> {
   // 啟動時自動跑 migration + seed（docker compose up 即可呈現）
   await migrate();
 

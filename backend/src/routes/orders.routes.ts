@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import type { PoolClient } from 'pg';
 import { pool, withTransaction } from '../db/pool.js';
 import { AppError, ok, asyncHandler } from '../lib/errors.js';
 import { authenticate, authorize } from '../middleware/auth.js';
@@ -9,13 +10,20 @@ import {
   emitInventoryUpdated,
 } from '../lib/realtime.js';
 import { pushToShippers } from '../lib/push.js';
+import type { OrderRow, OrderItemRow, ProductRow, OrderStatus, CustomerRow } from '../types.js';
 
 const router = Router();
 
-const NEXT_STATUS = { pending: 'preparing', preparing: 'shipped' };
+const NEXT_STATUS: Partial<Record<OrderStatus, OrderStatus>> = {
+  pending: 'preparing',
+  preparing: 'shipped',
+};
 
-async function loadOrderItems(client, orderId) {
-  const { rows } = await (client || pool).query(
+async function loadOrderItems(
+  client: PoolClient | null,
+  orderId: string
+): Promise<OrderItemRow[]> {
+  const { rows } = await (client || pool).query<OrderItemRow>(
     'SELECT * FROM order_items WHERE order_id = $1',
     [orderId]
   );
@@ -23,7 +31,7 @@ async function loadOrderItems(client, orderId) {
 }
 
 /** 出貨組視角（無金額） */
-function toShippingView(order, items) {
+function toShippingView(order: OrderRow, items: OrderItemRow[]) {
   return {
     id: order.id,
     order_no: order.order_no,
@@ -42,7 +50,10 @@ router.post(
   authenticate,
   authorize('sales', 'admin'),
   asyncHandler(async (req, res) => {
-    const { customer, items } = req.body || {};
+    const { customer, items } = (req.body ?? {}) as {
+      customer?: { id?: string; name?: string; phone?: string };
+      items?: Array<{ product_id?: string; qty?: number; unit_price?: number }>;
+    };
     if (!customer?.name || !customer?.phone) {
       throw new AppError('VALIDATION_ERROR', '請輸入客戶姓名與電話');
     }
@@ -52,13 +63,16 @@ router.post(
 
     const result = await withTransaction(async (client) => {
       // 1. 客戶：沿用既有或新建
-      let customerId = customer.id || null;
+      let customerId: string | null = customer.id || null;
       if (customerId) {
-        const c = await client.query('SELECT id FROM customers WHERE id = $1', [customerId]);
+        const c = await client.query<Pick<CustomerRow, 'id'>>(
+          'SELECT id FROM customers WHERE id = $1',
+          [customerId]
+        );
         if (!c.rows[0]) customerId = null;
       }
       if (!customerId) {
-        const c = await client.query(
+        const c = await client.query<Pick<CustomerRow, 'id'>>(
           'INSERT INTO customers (name, phone) VALUES ($1, $2) RETURNING id',
           [customer.name, customer.phone]
         );
@@ -66,13 +80,18 @@ router.post(
       }
 
       // 2. 驗證商品（鎖定列以避免超賣）
-      const lineItems = [];
+      const lineItems: Array<{
+        product: ProductRow;
+        qty: number;
+        unitPrice: number;
+        subtotal: number;
+      }> = [];
       let total = 0;
       for (const it of items) {
         if (!it.product_id || !it.qty || it.qty <= 0) {
           throw new AppError('VALIDATION_ERROR', '商品或數量不正確');
         }
-        const p = await client.query('SELECT * FROM products WHERE id = $1 FOR UPDATE', [
+        const p = await client.query<ProductRow>('SELECT * FROM products WHERE id = $1 FOR UPDATE', [
           it.product_id,
         ]);
         const product = p.rows[0];
@@ -89,23 +108,23 @@ router.post(
 
       // 3. 產生訂單編號 YYYYMMDD-NNN（台北日）
       const prefix = taipeiOrderDatePrefix();
-      const cnt = await client.query(
+      const cnt = await client.query<{ n: number }>(
         `SELECT COUNT(*)::int AS n FROM orders WHERE order_no LIKE $1`,
         [`${prefix}-%`]
       );
       const orderNo = `${prefix}-${String(cnt.rows[0].n + 1).padStart(3, '0')}`;
 
       // 4. 建立訂單
-      const o = await client.query(
+      const o = await client.query<OrderRow>(
         `INSERT INTO orders
            (order_no, customer_id, customer_name, customer_phone, total_amount, status, created_by)
          VALUES ($1, $2, $3, $4, $5, 'pending', $6) RETURNING *`,
-        [orderNo, customerId, customer.name, customer.phone, total, req.user.id]
+        [orderNo, customerId, customer.name, customer.phone, total, req.user!.id]
       );
       const order = o.rows[0];
 
       // 5. 明細 + 扣庫存
-      const updatedStocks = [];
+      const updatedStocks: Array<Pick<ProductRow, 'id' | 'stock_qty'>> = [];
       for (const li of lineItems) {
         await client.query(
           `INSERT INTO order_items
@@ -113,7 +132,7 @@ router.post(
            VALUES ($1, $2, $3, $4, $5, $6)`,
           [order.id, li.product.id, li.product.name, li.qty, li.unitPrice, li.subtotal]
         );
-        const upd = await client.query(
+        const upd = await client.query<Pick<ProductRow, 'id' | 'stock_qty'>>(
           'UPDATE products SET stock_qty = stock_qty - $2, updated_at = now() WHERE id = $1 RETURNING id, stock_qty',
           [li.product.id, li.qty]
         );
@@ -124,7 +143,7 @@ router.post(
       await client.query(
         `INSERT INTO shipment_status_logs (order_id, from_status, to_status, changed_by)
          VALUES ($1, NULL, 'pending', $2)`,
-        [order.id, req.user.id]
+        [order.id, req.user!.id]
       );
 
       const orderItems = await loadOrderItems(client, order.id);
@@ -166,9 +185,11 @@ router.get(
   authenticate,
   authorize('admin'),
   asyncHandler(async (req, res) => {
-    const { status, from, to } = req.query;
-    const where = [];
-    const params = [];
+    const status = req.query.status as string | undefined;
+    const from = req.query.from as string | undefined;
+    const to = req.query.to as string | undefined;
+    const where: string[] = [];
+    const params: unknown[] = [];
     if (status) {
       params.push(status);
       where.push(`status = $${params.length}`);
@@ -182,7 +203,7 @@ router.get(
       where.push(`created_at < $${params.length}`);
     }
     const clause = where.length ? `WHERE ${where.join(' AND ')}` : '';
-    const { rows } = await pool.query(
+    const { rows } = await pool.query<OrderRow>(
       `SELECT * FROM orders ${clause} ORDER BY created_at DESC LIMIT 500`,
       params
     );
@@ -196,9 +217,9 @@ router.get(
   authenticate,
   authorize('sales', 'admin'),
   asyncHandler(async (req, res) => {
-    const { rows } = await pool.query(
+    const { rows } = await pool.query<OrderRow>(
       'SELECT * FROM orders WHERE created_by = $1 ORDER BY created_at DESC LIMIT 200',
-      [req.user.id]
+      [req.user!.id]
     );
     ok(res, rows);
   })
@@ -210,7 +231,7 @@ router.get(
   authenticate,
   authorize('shipper', 'admin'),
   asyncHandler(async (req, res) => {
-    const { rows } = await pool.query(
+    const { rows } = await pool.query<OrderRow>(
       `SELECT * FROM orders ORDER BY
          CASE status WHEN 'pending' THEN 0 WHEN 'preparing' THEN 1 ELSE 2 END,
          created_at DESC
@@ -230,14 +251,16 @@ router.get(
   '/:id',
   authenticate,
   asyncHandler(async (req, res) => {
-    const { rows } = await pool.query('SELECT * FROM orders WHERE id = $1', [req.params.id]);
+    const { rows } = await pool.query<OrderRow>('SELECT * FROM orders WHERE id = $1', [
+      req.params.id,
+    ]);
     const order = rows[0];
     if (!order) throw new AppError('NOT_FOUND', '找不到訂單');
 
-    if (req.user.role === 'sales' && order.created_by !== req.user.id) {
+    if (req.user!.role === 'sales' && order.created_by !== req.user!.id) {
       throw new AppError('FORBIDDEN', '無權查看此訂單');
     }
-    if (req.user.role === 'shipper') {
+    if (req.user!.role === 'shipper') {
       const items = await loadOrderItems(null, order.id);
       return ok(res, toShippingView(order, items));
     }
@@ -259,33 +282,34 @@ router.patch(
   authenticate,
   authorize('shipper', 'admin'),
   asyncHandler(async (req, res) => {
-    const { status } = req.body || {};
-    if (!['pending', 'preparing', 'shipped'].includes(status)) {
+    const { status } = (req.body ?? {}) as { status?: string };
+    if (!['pending', 'preparing', 'shipped'].includes(status as string)) {
       throw new AppError('VALIDATION_ERROR', '狀態不正確');
     }
+    const nextStatus = status as OrderStatus;
 
     const updated = await withTransaction(async (client) => {
-      const r = await client.query('SELECT * FROM orders WHERE id = $1 FOR UPDATE', [
+      const r = await client.query<OrderRow>('SELECT * FROM orders WHERE id = $1 FOR UPDATE', [
         req.params.id,
       ]);
       const order = r.rows[0];
       if (!order) throw new AppError('NOT_FOUND', '找不到訂單');
 
       // 僅允許單向推進 pending → preparing → shipped
-      if (NEXT_STATUS[order.status] !== status) {
+      if (NEXT_STATUS[order.status] !== nextStatus) {
         throw new AppError('INVALID_STATUS_TRANSITION', '不允許的狀態轉換');
       }
 
-      const shippedAt = status === 'shipped' ? new Date() : null;
-      const u = await client.query(
+      const shippedAt = nextStatus === 'shipped' ? new Date() : null;
+      const u = await client.query<OrderRow>(
         `UPDATE orders SET status = $2, shipped_at = COALESCE($3, shipped_at)
          WHERE id = $1 RETURNING *`,
-        [order.id, status, shippedAt]
+        [order.id, nextStatus, shippedAt]
       );
       await client.query(
         `INSERT INTO shipment_status_logs (order_id, from_status, to_status, changed_by)
          VALUES ($1, $2, $3, $4)`,
-        [order.id, order.status, status, req.user.id]
+        [order.id, order.status, nextStatus, req.user!.id]
       );
       return u.rows[0];
     });

@@ -3,8 +3,23 @@ import { pool } from '../db/pool.js';
 import { ok, asyncHandler } from '../lib/errors.js';
 import { authenticate, authorize } from '../middleware/auth.js';
 import { taipeiDayRange, taipeiToday } from '../lib/tz.js';
+import type { OrderRow, OrderStatus } from '../types.js';
 
 const router = Router();
+
+type SummaryRow = {
+  revenue: number;
+  order_count: number;
+  shipped_count: number;
+  pending_count: number;
+};
+
+type ProductRankingRow = {
+  product_id: string;
+  product_name: string;
+  qty: number;
+  amount: number;
+};
 
 // GET /stats/summary?date=YYYY-MM-DD  當日營收、訂單數
 router.get(
@@ -12,9 +27,9 @@ router.get(
   authenticate,
   authorize('admin'),
   asyncHandler(async (req, res) => {
-    const date = req.query.date || taipeiToday();
+    const date = (req.query.date as string | undefined) || taipeiToday();
     const { start, end } = taipeiDayRange(date);
-    const { rows } = await pool.query(
+    const { rows } = await pool.query<SummaryRow>(
       `SELECT
          COALESCE(SUM(total_amount), 0) AS revenue,
          COUNT(*)::int AS order_count,
@@ -40,11 +55,11 @@ router.get(
   authenticate,
   authorize('admin'),
   asyncHandler(async (req, res) => {
-    const from = req.query.from || taipeiToday();
-    const to = req.query.to || from;
+    const from = (req.query.from as string | undefined) || taipeiToday();
+    const to = (req.query.to as string | undefined) || from;
     const start = taipeiDayRange(from).start;
     const end = taipeiDayRange(to).end;
-    const { rows } = await pool.query(
+    const { rows } = await pool.query<ProductRankingRow>(
       `SELECT oi.product_id, oi.product_name,
               SUM(oi.qty)::int AS qty,
               SUM(oi.subtotal) AS amount
@@ -64,9 +79,11 @@ router.get(
   authenticate,
   authorize('admin'),
   asyncHandler(async (req, res) => {
-    const { from, to, status } = req.query;
-    const where = [];
-    const params = [];
+    const from = req.query.from as string | undefined;
+    const to = req.query.to as string | undefined;
+    const status = req.query.status as OrderStatus | undefined;
+    const where: string[] = [];
+    const params: unknown[] = [];
     if (from) {
       params.push(taipeiDayRange(from).start);
       where.push(`created_at >= $${params.length}`);
@@ -80,7 +97,7 @@ router.get(
       where.push(`status = $${params.length}`);
     }
     const clause = where.length ? `WHERE ${where.join(' AND ')}` : '';
-    const { rows } = await pool.query(
+    const { rows } = await pool.query<OrderRow>(
       `SELECT * FROM orders ${clause} ORDER BY created_at DESC LIMIT 500`,
       params
     );

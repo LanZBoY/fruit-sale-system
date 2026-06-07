@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import type { PushSubscription } from 'web-push';
 import { pool } from '../db/pool.js';
 import { config } from '../config.js';
 import { ok, asyncHandler, AppError } from '../lib/errors.js';
@@ -20,13 +21,14 @@ router.post(
   '/subscribe',
   authenticate,
   asyncHandler(async (req, res) => {
-    const sub = req.body?.subscription || req.body;
+    const body = (req.body ?? {}) as Partial<PushSubscription> & { subscription?: PushSubscription };
+    const sub: Partial<PushSubscription> | undefined = body.subscription || body;
     if (!sub?.endpoint) throw new AppError('VALIDATION_ERROR', '訂閱資料不正確');
     await pool.query(
       `INSERT INTO push_subscriptions (user_id, endpoint, subscription)
        VALUES ($1, $2, $3)
        ON CONFLICT (endpoint) DO UPDATE SET subscription = EXCLUDED.subscription, user_id = EXCLUDED.user_id`,
-      [req.user.id, sub.endpoint, sub]
+      [req.user!.id, sub.endpoint, sub]
     );
     ok(res, { ok: true }, 201);
   })
@@ -37,11 +39,11 @@ router.delete(
   '/subscribe',
   authenticate,
   asyncHandler(async (req, res) => {
-    const endpoint = req.body?.endpoint;
+    const { endpoint } = (req.body ?? {}) as { endpoint?: string };
     if (endpoint) {
       await pool.query('DELETE FROM push_subscriptions WHERE endpoint = $1', [endpoint]);
     } else {
-      await pool.query('DELETE FROM push_subscriptions WHERE user_id = $1', [req.user.id]);
+      await pool.query('DELETE FROM push_subscriptions WHERE user_id = $1', [req.user!.id]);
     }
     ok(res, { ok: true });
   })

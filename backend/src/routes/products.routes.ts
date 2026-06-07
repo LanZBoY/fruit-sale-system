@@ -7,6 +7,7 @@ import { pool } from '../db/pool.js';
 import { config } from '../config.js';
 import { AppError, ok, asyncHandler } from '../lib/errors.js';
 import { authenticate, authorize } from '../middleware/auth.js';
+import type { ProductRow } from '../types.js';
 
 const router = Router();
 
@@ -26,7 +27,7 @@ const upload = multer({
 });
 
 // 出貨組可見：移除金額欄位
-function toShipperView(p) {
+function toShipperView(p: Pick<ProductRow, 'id' | 'name' | 'image_url' | 'stock_qty' | 'is_listed'>) {
   return { id: p.id, name: p.name, image_url: p.image_url, stock_qty: p.stock_qty, is_listed: p.is_listed };
 }
 
@@ -36,17 +37,17 @@ router.get(
   authenticate,
   asyncHandler(async (req, res) => {
     // 出貨組一律拿無金額版本（雙保險：後端過濾，非僅前端隱藏）
-    const forShipping = req.user.role === 'shipper' || req.query.for === 'shipping';
+    const forShipping = req.user!.role === 'shipper' || req.query.for === 'shipping';
 
-    const where = [];
-    const params = [];
+    const where: string[] = [];
+    const params: string[] = [];
     if (req.query.listed === 'true') where.push('is_listed = TRUE');
     if (req.query.q) {
       params.push(`%${req.query.q}%`);
       where.push(`name ILIKE $${params.length}`);
     }
     const clause = where.length ? `WHERE ${where.join(' AND ')}` : '';
-    const { rows } = await pool.query(
+    const { rows } = await pool.query<ProductRow>(
       `SELECT * FROM products ${clause} ORDER BY is_listed DESC, name ASC`,
       params
     );
@@ -60,7 +61,7 @@ router.get(
   authenticate,
   authorize('sales', 'admin'),
   asyncHandler(async (req, res) => {
-    const { rows } = await pool.query('SELECT * FROM products WHERE id = $1', [req.params.id]);
+    const { rows } = await pool.query<ProductRow>('SELECT * FROM products WHERE id = $1', [req.params.id]);
     if (!rows[0]) throw new AppError('NOT_FOUND', '找不到商品');
     ok(res, rows[0]);
   })
@@ -72,9 +73,15 @@ router.post(
   authenticate,
   authorize('admin'),
   asyncHandler(async (req, res) => {
-    const { name, price = 0, stock_qty = 0, is_listed = true, image_url = null } = req.body || {};
+    const { name, price = 0, stock_qty = 0, is_listed = true, image_url = null } = (req.body ?? {}) as {
+      name?: string;
+      price?: number;
+      stock_qty?: number;
+      is_listed?: boolean;
+      image_url?: string | null;
+    };
     if (!name) throw new AppError('VALIDATION_ERROR', '請輸入商品名稱');
-    const { rows } = await pool.query(
+    const { rows } = await pool.query<ProductRow>(
       `INSERT INTO products (name, price, stock_qty, is_listed, image_url)
        VALUES ($1, $2, $3, $4, $5) RETURNING *`,
       [name, price, stock_qty, is_listed, image_url]
@@ -89,8 +96,14 @@ router.put(
   authenticate,
   authorize('admin'),
   asyncHandler(async (req, res) => {
-    const { name, price, stock_qty, is_listed, image_url } = req.body || {};
-    const { rows } = await pool.query(
+    const { name, price, stock_qty, is_listed, image_url } = (req.body ?? {}) as {
+      name?: string;
+      price?: number;
+      stock_qty?: number;
+      is_listed?: boolean;
+      image_url?: string | null;
+    };
+    const { rows } = await pool.query<ProductRow>(
       `UPDATE products SET
          name = COALESCE($2, name),
          price = COALESCE($3, price),
@@ -112,8 +125,8 @@ router.patch(
   authenticate,
   authorize('admin'),
   asyncHandler(async (req, res) => {
-    const { is_listed } = req.body || {};
-    const { rows } = await pool.query(
+    const { is_listed } = (req.body ?? {}) as { is_listed?: boolean };
+    const { rows } = await pool.query<ProductRow>(
       `UPDATE products SET is_listed = $2, updated_at = now() WHERE id = $1 RETURNING *`,
       [req.params.id, Boolean(is_listed)]
     );
@@ -131,7 +144,7 @@ router.post(
   asyncHandler(async (req, res) => {
     if (!req.file) throw new AppError('VALIDATION_ERROR', '請選擇圖片檔');
     const imageUrl = `${config.publicBaseUrl}/uploads/${req.file.filename}`;
-    const { rows } = await pool.query(
+    const { rows } = await pool.query<ProductRow>(
       `UPDATE products SET image_url = $2, updated_at = now() WHERE id = $1 RETURNING *`,
       [req.params.id, imageUrl]
     );
