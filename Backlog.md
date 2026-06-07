@@ -6,7 +6,26 @@
 
 ## 🚧 規劃中
 
-### 1. 訂單自動派單給出貨組
+### 1. 全專案改寫為 TypeScript（學習目的）
+
+> 先做這個（重構），再實作新功能。
+
+**目標**：把前後端從 JavaScript 改寫成 TypeScript，主要為了學 TS。
+
+**建議做法（漸進式，不要一次全砍掉重寫）**：
+- **後端**先做（型別收益最大、檔案較少）：
+  - 加 `tsconfig.json`、`typescript` + `@types/node` `@types/express` 等。
+  - 先把 `.js` 改副檔名成 `.ts`，開 `allowJs` + `checkJs` 逐步補型別，最後關掉 allowJs。
+  - DB 查詢結果、API 的 request/response 定義 `interface` / `type`（型別收益最明顯的地方）。
+  - 執行：用 `tsx`（開發）或 `tsc` 編譯；Dockerfile 加 build 階段。
+- **前端**：Vite 原生支援 TS，元件改 `.tsx`，props 定義型別；React Query / Socket.IO 事件 payload 都可上型別。
+- 可考慮共用一份型別（monorepo 的 `shared/` 放 API DTO，前後端共用）。
+
+**學習重點**：`interface` vs `type`、泛型、`unknown` vs `any`、`strict` 模式、第三方套件的 `@types/*`、Express 的型別擴充（`Request` 加自訂欄位如 `req.user`）。
+
+---
+
+### 2. 訂單自動派單給出貨組
 
 **目標**：銷售組建立訂單後，系統自動把訂單分配給「目前閒置且今天有上班」的出貨組人員，取代現在「所有出貨組共看同一張待出貨清單」的模式。
 
@@ -29,26 +48,9 @@
 
 ---
 
-### 2. 全專案改寫為 TypeScript（學習目的）
-
-**目標**：把前後端從 JavaScript 改寫成 TypeScript，主要為了學 TS。
-
-**建議做法（漸進式，不要一次全砍掉重寫）**：
-- **後端**先做（型別收益最大、檔案較少）：
-  - 加 `tsconfig.json`、`typescript` + `@types/node` `@types/express` 等。
-  - 先把 `.js` 改副檔名成 `.ts`，開 `allowJs` + `checkJs` 逐步補型別，最後關掉 allowJs。
-  - DB 查詢結果、API 的 request/response 定義 `interface` / `type`（型別收益最明顯的地方）。
-  - 執行：用 `tsx`（開發）或 `tsc` 編譯；Dockerfile 加 build 階段。
-- **前端**：Vite 原生支援 TS，元件改 `.tsx`，props 定義型別；React Query / Socket.IO 事件 payload 都可上型別。
-- 可考慮共用一份型別（monorepo 的 `shared/` 放 API DTO，前後端共用）。
-
-**學習重點**：`interface` vs `type`、泛型、`unknown` vs `any`、`strict` 模式、第三方套件的 `@types/*`、Express 的型別擴充（`Request` 加自訂欄位如 `req.user`）。
-
----
-
 ### 3. 加入 Swagger / OpenAPI API 文件
 
-> ⏳ **順序：先做完 #2 TypeScript 改寫，再引入。**
+> ⏳ **順序：先做完 #1 TypeScript 改寫，再引入。**
 
 **現況**：目前沒有任何 swagger/openapi。API 文件只有純文字（`README.md` 的「API 摘要」段、`specs/02-backend-spec.md`），不是機器可讀，無法產互動式 UI、client SDK 或 contract test。
 
