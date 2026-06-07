@@ -9,3 +9,4 @@
 | [01-db-migration-in-node.md](01-db-migration-in-node.md) | Node.js 的資料庫 migration 套件生態，為何選 node-pg-migrate |
 | [02-app-startup-flow.md](02-app-startup-flow.md) | 後端啟動流程：migration 是在哪裡、怎麼被呼叫的 |
 | [03-esm-import-vs-main.md](03-esm-import-vs-main.md) | ESM 如何判斷「被 import」還是「被直接執行」(對比 Python 的 `__main__`) |
+| [04-express-async-error-next-onion.md](04-express-async-error-next-onion.md) | asyncHandler、next 機制、洋蔥模型、為何不能 await next |
