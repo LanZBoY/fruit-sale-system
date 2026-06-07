@@ -1,0 +1,55 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: fruit-db
+    environment:
+      POSTGRES_USER: fruit
+      POSTGRES_PASSWORD: fruit
+      POSTGRES_DB: fruit_sales
+      TZ: Asia/Taipei
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U fruit -d fruit_sales']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    ports:
+      - '5433:5432' # 對外 5433，避免與本機 PostgreSQL 衝突
+
+  backend:
+    build: ./backend
+    container_name: fruit-backend
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      PORT: 3000
+      DATABASE_URL: postgres://fruit:fruit@db:5432/fruit_sales
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:-dev-access-secret-change-me}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:-dev-refresh-secret-change-me}
+      JWT_ACCESS_TTL: 15m
+      JWT_REFRESH_TTL: 7d
+      CORS_ORIGIN: '*'
+      UPLOAD_DIR: /app/uploads
+      # 啟用 Web Push 時填入（npx web-push generate-vapid-keys）
+      VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
+      VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
+      VAPID_SUBJECT: ${VAPID_SUBJECT:-mailto:admin@example.com}
+      TZ: Asia/Taipei
+    volumes:
+      - uploads:/app/uploads
+    ports:
+      - '3000:3000'
+
+  frontend:
+    build: ./frontend
+    container_name: fruit-frontend
+    depends_on:
+      - backend
+    ports:
+      - '8080:80'
+
+volumes:
+  db-data:
+  uploads:
