@@ -1,8 +1,10 @@
 import express from 'express';
 import type { Request, Response } from 'express';
 import cors from 'cors';
+import swaggerUi from 'swagger-ui-express';
 import { config } from './config.js';
 import { errorHandler, fail } from './lib/errors.js';
+import { buildOpenapiDoc } from './lib/openapi.js';
 
 import authRoutes from './routes/auth.routes.js';
 import productRoutes from './routes/products.routes.js';
@@ -33,6 +35,12 @@ export function createApp(): express.Express {
   api.use('/users', userRoutes);
   api.use('/push', pushRoutes);
   app.use('/api/v1', api);
+
+  // Swagger UI 與原始 OpenAPI JSON（需在 404 fallback 之前掛載）
+  // 各 route 在 import 時已透過 documented() 完成註冊，此處組裝完整文件
+  const openapiSpec = buildOpenapiDoc();
+  app.get('/api/v1/openapi.json', (_req: Request, res: Response) => res.json(openapiSpec));
+  app.use('/api/v1/docs', swaggerUi.serve, swaggerUi.setup(openapiSpec));
 
   app.use((_req: Request, res: Response) => fail(res, 'NOT_FOUND', '找不到資源', 404));
   app.use(errorHandler);
