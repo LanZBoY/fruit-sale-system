@@ -10,3 +10,5 @@
 | [02-app-startup-flow.md](02-app-startup-flow.md) | 後端啟動流程：migration 是在哪裡、怎麼被呼叫的 |
 | [03-esm-import-vs-main.md](03-esm-import-vs-main.md) | ESM 如何判斷「被 import」還是「被直接執行」(對比 Python 的 `__main__`) |
 | [04-express-async-error-next-onion.md](04-express-async-error-next-onion.md) | asyncHandler、next 機制、洋蔥模型、為何不能 await next |
+| [05-pg-raw-driver-query.md](05-pg-raw-driver-query.md) | pg 是 raw driver：`$n` 參數化防注入、rows 陣列取值、TS 空陣列陷阱 |
+| [06-argon2-password-hash-phc.md](06-argon2-password-hash-phc.md) | argon2 密碼雜湊：salt 內嵌、PHC 字串格式、為何 verify 不用傳 salt |
