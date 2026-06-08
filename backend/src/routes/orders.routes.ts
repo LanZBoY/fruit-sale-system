@@ -10,6 +10,15 @@ import {
   emitInventoryUpdated,
 } from '../lib/realtime.js';
 import { pushToShippers } from '../lib/push.js';
+import {
+  z,
+  documented,
+  envelope,
+  ErrorSchema,
+  OrderDetailSchema,
+  OrderDetailWithLogsSchema,
+  OrderShippingViewSchema,
+} from '../lib/openapi.js';
 import type { OrderRow, OrderItemRow, ProductRow, OrderStatus, CustomerRow } from '../types.js';
 
 const router = Router();
@@ -18,6 +27,58 @@ const NEXT_STATUS: Partial<Record<OrderStatus, OrderStatus>> = {
   pending: 'preparing',
   preparing: 'shipped',
 };
+
+// ---- 請求 schema（單一來源：執行期驗證 + 文件）----
+
+// 建立訂單：客戶資訊 + 至少一項商品
+const CreateOrderBody = z.object({
+  customer: z.object({
+    id: z.string().optional(),
+    name: z.string().min(1, '請輸入客戶姓名'),
+    phone: z.string().min(1, '請輸入客戶電話'),
+  }),
+  items: z
+    .array(
+      z.object({
+        product_id: z.string().min(1, '缺少商品 ID'),
+        qty: z.number().positive('數量必須大於 0'),
+        unit_price: z.number().optional(),
+      })
+    )
+    .min(1, '訂單需至少一項商品'),
+});
+
+// 訂單列表查詢（寬鬆：欄位皆可選，型別不 reject）
+const ListOrdersQuery = z.object({
+  status: z.string().optional().openapi({ description: '訂單狀態篩選：pending / preparing / shipped' }),
+  from: z.string().optional().openapi({ description: '起始日期（台北時區，含此日）' }),
+  to: z.string().optional().openapi({ description: '結束日期（台北時區，不含此日）' }),
+});
+
+// 訂單 ID path 參數
+const OrderIdParams = z.object({ id: z.string() });
+
+// 更新出貨狀態
+const UpdateStatusBody = z.object({
+  status: z.enum(['pending', 'preparing', 'shipped']),
+});
+
+// 建立訂單回應
+const CreateOrderResult = z.object({
+  id: z.string(),
+  order_no: z.string(),
+  status: z.enum(['pending', 'preparing', 'shipped']),
+  total_amount: z.number(),
+  created_at: z.string().openapi({ format: 'date-time' }),
+});
+
+// 更新狀態回應
+const UpdateStatusResult = z.object({
+  id: z.string(),
+  order_no: z.string(),
+  status: z.enum(['pending', 'preparing', 'shipped']),
+  shipped_at: z.string().openapi({ format: 'date-time' }).nullable(),
+});
 
 async function loadOrderItems(
   client: PoolClient | null,
@@ -49,17 +110,25 @@ router.post(
   '/',
   authenticate,
   authorize('sales', 'admin'),
+  documented({
+    method: 'post',
+    path: '/api/v1/orders',
+    tags: ['Orders'],
+    summary: '建立訂單',
+    description: 'Sales 和 admin 可建立訂單。需要客戶資訊（姓名、電話）和至少一項商品。',
+    security: true,
+    request: { body: CreateOrderBody },
+    responses: {
+      201: { description: '訂單建立成功', schema: envelope(CreateOrderResult) },
+      400: { description: '驗證錯誤', schema: ErrorSchema },
+      401: { description: '未授權', schema: ErrorSchema },
+      403: { description: '權限不足（非 sales 或 admin）', schema: ErrorSchema },
+      404: { description: '商品不存在', schema: ErrorSchema },
+      409: { description: '庫存不足', schema: ErrorSchema },
+    },
+  }),
   asyncHandler(async (req, res) => {
-    const { customer, items } = (req.body ?? {}) as {
-      customer?: { id?: string; name?: string; phone?: string };
-      items?: Array<{ product_id?: string; qty?: number; unit_price?: number }>;
-    };
-    if (!customer?.name || !customer?.phone) {
-      throw new AppError('VALIDATION_ERROR', '請輸入客戶姓名與電話');
-    }
-    if (!Array.isArray(items) || items.length === 0) {
-      throw new AppError('VALIDATION_ERROR', '訂單需至少一項商品');
-    }
+    const { customer, items } = req.body as z.infer<typeof CreateOrderBody>;
 
     const result = await withTransaction(async (client) => {
       // 1. 客戶：沿用既有或新建
@@ -184,6 +253,20 @@ router.get(
   '/',
   authenticate,
   authorize('admin'),
+  documented({
+    method: 'get',
+    path: '/api/v1/orders',
+    tags: ['Orders'],
+    summary: '查詢訂單紀錄',
+    description: 'Admin 限定。可按狀態、日期範圍篩選，最多回傳 500 筆。',
+    security: true,
+    request: { query: ListOrdersQuery },
+    responses: {
+      200: { description: '訂單列表', schema: envelope(z.array(OrderDetailSchema)) },
+      401: { description: '未授權', schema: ErrorSchema },
+      403: { description: '權限不足（非 admin）', schema: ErrorSchema },
+    },
+  }),
   asyncHandler(async (req, res) => {
     const status = req.query.status as string | undefined;
     const from = req.query.from as string | undefined;
@@ -216,6 +299,19 @@ router.get(
   '/mine',
   authenticate,
   authorize('sales', 'admin'),
+  documented({
+    method: 'get',
+    path: '/api/v1/orders/mine',
+    tags: ['Orders'],
+    summary: '查詢自己建立的訂單',
+    description: 'Sales 和 admin 可查詢自己建立的訂單，最多回傳 200 筆。',
+    security: true,
+    responses: {
+      200: { description: '訂單列表', schema: envelope(z.array(OrderDetailSchema)) },
+      401: { description: '未授權', schema: ErrorSchema },
+      403: { description: '權限不足（非 sales 或 admin）', schema: ErrorSchema },
+    },
+  }),
   asyncHandler(async (req, res) => {
     const { rows } = await pool.query<OrderRow>(
       'SELECT * FROM orders WHERE created_by = $1 ORDER BY created_at DESC LIMIT 200',
@@ -230,6 +326,23 @@ router.get(
   '/shipping',
   authenticate,
   authorize('shipper', 'admin'),
+  documented({
+    method: 'get',
+    path: '/api/v1/orders/shipping',
+    tags: ['Orders'],
+    summary: '查詢待出貨清單',
+    description:
+      'Shipper 和 admin 限定。回應不含金額欄位（total_amount、unit_price），最多回傳 300 筆，按狀態優先級（pending → preparing → shipped）排序。',
+    security: true,
+    responses: {
+      200: {
+        description: '待出貨訂單列表（無金額資訊）',
+        schema: envelope(z.array(OrderShippingViewSchema)),
+      },
+      401: { description: '未授權', schema: ErrorSchema },
+      403: { description: '權限不足（非 shipper 或 admin）', schema: ErrorSchema },
+    },
+  }),
   asyncHandler(async (req, res) => {
     const { rows } = await pool.query<OrderRow>(
       `SELECT * FROM orders ORDER BY
@@ -250,6 +363,25 @@ router.get(
 router.get(
   '/:id',
   authenticate,
+  documented({
+    method: 'get',
+    path: '/api/v1/orders/{id}',
+    tags: ['Orders'],
+    summary: '查詢訂單詳情',
+    description:
+      'Admin 可查看所有訂單；Sales 僅可查看自己建立的訂單；Shipper 可查看但不含金額欄位。',
+    security: true,
+    request: { params: OrderIdParams },
+    responses: {
+      200: {
+        description: '訂單詳情（admin/sales 含金額及狀態日誌；shipper 無金額）',
+        schema: envelope(z.union([OrderDetailWithLogsSchema, OrderShippingViewSchema])),
+      },
+      401: { description: '未授權', schema: ErrorSchema },
+      403: { description: '無權查看此訂單', schema: ErrorSchema },
+      404: { description: '訂單不存在', schema: ErrorSchema },
+    },
+  }),
   asyncHandler(async (req, res) => {
     const { rows } = await pool.query<OrderRow>('SELECT * FROM orders WHERE id = $1', [
       req.params.id,
@@ -281,11 +413,25 @@ router.patch(
   '/:id/status',
   authenticate,
   authorize('shipper', 'admin'),
+  documented({
+    method: 'patch',
+    path: '/api/v1/orders/{id}/status',
+    tags: ['Orders'],
+    summary: '更新訂單出貨狀態',
+    description: 'Shipper 和 admin 限定。僅允許單向推進：pending → preparing → shipped。',
+    security: true,
+    request: { params: OrderIdParams, body: UpdateStatusBody },
+    responses: {
+      200: { description: '狀態更新成功', schema: envelope(UpdateStatusResult) },
+      400: { description: '驗證錯誤（狀態值不正確）', schema: ErrorSchema },
+      401: { description: '未授權', schema: ErrorSchema },
+      403: { description: '權限不足（非 shipper 或 admin）', schema: ErrorSchema },
+      404: { description: '訂單不存在', schema: ErrorSchema },
+      409: { description: '不允許的狀態轉換', schema: ErrorSchema },
+    },
+  }),
   asyncHandler(async (req, res) => {
-    const { status } = (req.body ?? {}) as { status?: string };
-    if (!['pending', 'preparing', 'shipped'].includes(status as string)) {
-      throw new AppError('VALIDATION_ERROR', '狀態不正確');
-    }
+    const { status } = req.body as z.infer<typeof UpdateStatusBody>;
     const nextStatus = status as OrderStatus;
 
     const updated = await withTransaction(async (client) => {
