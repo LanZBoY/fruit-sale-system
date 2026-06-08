@@ -15,7 +15,7 @@ services:
       timeout: 3s
       retries: 10
     ports:
-      - '5433:5432' # 對外 5433，避免與本機 PostgreSQL 衝突
+      - '5432:5432' # 對外 5432（DB 一律跑在 container，不會與本機安裝的 postgres 衝突）
 
   backend:
     build: ./backend
